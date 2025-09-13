@@ -96,7 +96,7 @@
                     <div class="item session-row">
                         <div class="grow">
                             <div><b>@s.WorkoutName</b></div>
-                            <div class="small">@s.CompletedAt:dd.MM.yyyy HH:mm · @s.TotalSets Sätze · Volumen ~ @s.TotalVolume.ToString("0") kg·wdh</div>
+                            <div class="small">@s.CompletedAt · @s.TotalSets Sätze · Volumen ~ @s.TotalVolume.ToString("0") kg·wdh</div>
                         </div>
                         <div class="row-actions">                           
                             <NavLink class="btn" href="@($"/session/{s.Id}")">Details</NavLink>
