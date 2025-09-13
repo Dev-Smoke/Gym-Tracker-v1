@@ -1,0 +1,82 @@
+﻿@page "/session/{Id:guid}"
+@using Gym_Tracker.Services
+@using Gym_Tracker.Models
+@using Gym_Tracker.Components
+@inject AppState State
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<NavBar Title="Training – Details" />
+
+<div class="container vstack">
+  @if (session is null)
+  {
+    <div class="panel">Session nicht gefunden.</div>
+  }
+  else
+  {
+    <div class="panel vstack">
+      <div class="hstack align-center">
+        <div class="title">@session.WorkoutName</div>
+        <div class="grow"></div>
+        <div class="small">@session.CompletedAt</div>
+      </div>
+      <div class="small">@session.TotalSets Sätze · Volumen: @session.TotalVolume.ToString("0") kg·wdh (Warmups exkl.)</div>
+        <div class="header-actions">
+                <button class="btn danger" @onclick="Delete">🗑️</button>
+            <button class="btn" @onclick="Back">Zurück</button>
+        </div>
+
+    </div>
+
+    @foreach (var ex in session.Exercises)
+    {
+      <div class="panel vstack">
+        <b>@ex.Title</b>
+        @if (ex.Sets.Count == 0)
+        {
+          <div class="small">Keine Sätze erfasst.</div>
+        }
+        else
+        {
+          <div class="list">
+            @foreach (var s in ex.Sets.OrderBy(x => x.Ts))
+            {
+              <div class="item compact @(s.IsWarmup ? "warmup" : string.Empty)">
+                <div>
+                  @s.Reps×@s.Weight kg
+                  <span class="small">· RPE @s.Rpe · @s.Ts:HH:mm</span>
+                  @if (!string.IsNullOrWhiteSpace(s.Note))
+                  {
+                    <div class="small"><em>@s.Note</em></div>
+                  }
+                  @if (s.IsPR && !s.IsWarmup)
+                  {
+                    <span class="badge pr">🏅 PR</span>
+                  }
+                </div>
+              </div>
+            }
+          </div>
+        }
+      </div>
+    }
+  }
+</div>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    CompletedSession? session;
+
+    protected override void OnParametersSet()
+        => session = State.Sessions.FirstOrDefault(x => x.Id == Id);
+
+    async Task Delete()
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Training wirklich löschen?")) return;
+        await State.RemoveSession(Id);
+        Nav.NavigateTo("/");
+    }
+
+    void Back() => Nav.NavigateTo("/");
+}

@@ -1,0 +1,133 @@
+﻿@page "/edit/{Id:guid}"
+@using Gym_Tracker.Services
+@using Gym_Tracker.Models
+@using Gym_Tracker.Components
+@inject AppState State
+@inject NavigationManager Nav
+@implements IDisposable
+
+<NavBar Title="Workout bearbeiten" />
+<div class="container vstack">
+  @if (workout is null) { <div class="panel">Nicht gefunden.</div> } else {
+    <div class="panel vstack">
+      <div class="section">Allgemein</div>
+      <div class="hstack align-end" style="gap:10px">
+        <div class="vstack grow">
+          <label class="label">Workout-Name</label>
+          <input class="input tall" @bind-value="workout.Name" />
+        </div>
+        <button class="btn primary tall" @onclick="Save">Speichern</button>
+        <button class="btn tall" @onclick="Back">Zurück</button>
+      </div>
+    </div>
+
+    <div class="panel vstack">
+      <div class="section">Übungen</div>
+
+      <div class="hstack align-end" style="flex-wrap:wrap; gap:8px">
+        <div class="vstack" style="min-width:220px">
+          <label class="label">Übungsname</label>
+          <input class="input tall" placeholder="z. B. KH-Bankdrücken" @bind-value="exName" />
+        </div>
+        <div class="vstack" style="min-width:120px">
+          <label class="label">Soll-Sätze</label>
+          <input class="input tall" type="number" min="1" placeholder="z. B. 3" @bind-value="exSets" />
+        </div>
+        <div class="vstack" style="min-width:120px">
+          <label class="label">Soll-Wdh</label>
+          <input class="input tall" type="number" min="1" placeholder="z. B. 8" @bind-value="exReps" />
+        </div>
+        <div class="vstack" style="min-width:140px">
+          <label class="label">Start-kg</label>
+          <input class="input tall" type="number" step="0.25" min="0" placeholder="z. B. 20" @bind-value="exStartKg" />
+        </div>
+        <button class="btn primary tall" @onclick="AddExercise">+</button>
+      </div>
+
+      <div class="list" style="margin-top:10px">
+        @for (int i = 0; i < workout.Exercises.Count; i++)
+        {
+          var idx = i; // WICHTIG: lokale Kopie für die Lambdas
+          var e = workout.Exercises[idx];
+
+        <div class="item editor-row">
+            <div class="grow">
+                <div><b>@e.Title</b></div>
+                <div class="small">@e.TargetSets×@e.TargetReps · Start: @e.StartingWeight kg</div>
+            </div>
+            <div class="row-actions">
+                <button class="btn" disabled="@(idx == 0)" @onclick="() => MoveExercise(idx, -1)">▲</button>
+                <button class="btn" disabled="@(idx == workout.Exercises.Count - 1)" @onclick="() => MoveExercise(idx, +1)">▼</button>
+                <button class="btn orange icon" @onclick="() => EditExercise(e)">✏️</button>
+                <button class="btn danger" @onclick="() => RemoveExercise(e)">🗑️</button>
+            </div>
+        </div>
+
+        }
+      </div>
+    </div>
+  }
+</div>
+
+@code {
+  [Parameter] public Guid Id { get; set; }
+  Workout? workout;
+
+  string exName = ""; int exSets = 3; int exReps = 8; decimal exStartKg = 0m;
+
+  protected override void OnInitialized()
+      => State.OnChange += StateHasChanged;
+
+  public void Dispose()
+      => State.OnChange -= StateHasChanged;
+
+  protected override void OnParametersSet()
+      => workout = State.Workouts.FirstOrDefault(w => w.Id == Id);
+
+  async Task Save() => await State.SaveAsync();
+  void Back() => Nav.NavigateTo("/");
+
+  async Task AddExercise()
+  {
+      if (workout is null || string.IsNullOrWhiteSpace(exName)) return;
+      workout.Exercises.Add(new()
+      {
+          Title = exName.Trim(),
+          TargetSets = exSets,
+          TargetReps = exReps,
+          StartingWeight = exStartKg
+      });
+      await State.SaveAsync();
+      exName = ""; exSets = 3; exReps = 8; exStartKg = 0m;
+  }
+
+  async Task RemoveExercise(ExercisePlan e)
+  {
+      workout?.Exercises.Remove(e);
+      await State.SaveAsync();
+  }
+
+  async Task EditExercise(ExercisePlan e)
+  {
+      // Werte in die Eingabe übernehmen und den alten Eintrag entfernen
+      exName = e.Title; exSets = e.TargetSets; exReps = e.TargetReps; exStartKg = e.StartingWeight;
+      workout?.Exercises.Remove(e);
+      await State.SaveAsync();
+  }
+
+  async Task MoveExercise(int index, int delta)
+  {
+      if (workout is null) return;
+      var newIndex = index + delta;
+
+      if (index < 0 || index >= workout.Exercises.Count) return;
+      if (newIndex < 0 || newIndex >= workout.Exercises.Count) return;
+
+      var item = workout.Exercises[index];
+      workout.Exercises.RemoveAt(index);
+      workout.Exercises.Insert(newIndex, item);
+
+      await State.SaveAsync();
+      StateHasChanged();
+  }
+}

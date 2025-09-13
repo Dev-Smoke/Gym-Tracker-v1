@@ -1,0 +1,360 @@
+﻿@page "/train/{Id:guid}"
+@using Gym_Tracker.Components
+@using Gym_Tracker.Services
+@using Gym_Tracker.Models
+@inject AppState State
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@implements IDisposable
+
+<NavBar Title="Trainingsmodus" />
+<div class="container vstack has-mobile-bar">
+  @if (wo is null)
+  {
+    <div class="panel">Workout nicht gefunden.</div>
+  }
+  else
+  {
+    <!-- Sticky Header mit Timer -->
+    <div class="panel vstack sticky-top">
+      <div class="hstack align-center">
+        <div class="title">@wo!.Name</div>
+        <div class="grow"></div>
+        <RestTimer @ref="timer" RestSeconds="90" StartCollapsed="true" />
+      </div>
+
+      <div class="header-actions">
+        <button class="btn primary tall" @onclick="FinishTraining">Training abschließen</button>
+        <span class="small">Erfasst @currentTotalSets Sätze · Volumen: @currentTotalVolume.ToString("0") kg·wdh</span>
+      </div>
+
+      <div class="small desktop-only">Tipp: <span class="kbd">Enter</span> speichert Satz • Felder sind klar beschriftet.</div>
+    </div>
+
+    <!-- Übungen -->
+    <div class="vstack">
+      @foreach (var e in wo!.Exercises)
+      {
+        var lastAny = e.Log.LastOrDefault();
+                <div class="panel vstack exercise @(e.Id == activeExerciseId ? "is-active" : "") @(savedHighlightId == e.Id ? "just-saved" : "")" @onclick="() => SetActive(e)">
+
+          <div class="hstack align-center">
+            <div>
+              <b>@e.Title</b>
+              <div class="small">
+                Ziel: @e.TargetSets×@e.TargetReps · Start: @e.StartingWeight kg<br />
+                Letzter Stand gesamt:
+                @if (lastAny is null) { <span class="small">—</span> }
+                else { <span class="small">@lastAny.Reps×@lastAny.Weight kg (RPE @lastAny.Rpe)</span> }
+              </div>
+            </div>
+            <div class="grow"></div>
+            <button class="btn subtle" @onclick="(MouseEventArgs _) => ToggleHistory(e.Id)">
+              @(collapsed[e.Id] ? "Zuletzt (Session) ▸" : "Zuletzt (Session) ▾")
+            </button>
+          </div>
+
+          <!-- Eingabe -->
+          <div class="hstack align-end" style="gap:10px">
+            <div class="vstack" style="min-width:110px">
+              <label class="label">Wdh</label>
+              <input class="input tall"
+                     type="number" inputmode="numeric" pattern="[0-9]*"
+                     min="1" placeholder="z. B. 8"
+                     @bind-value="tmpReps[e.Id]"
+                     @onfocus="() => SetActive(e)" />
+            </div>
+
+            <div class="vstack" style="min-width:200px">
+              <label class="label">kg</label>
+              <div class="hstack align-end" style="gap:6px">
+                <input class="input tall" style="max-width:120px"
+                       type="number" inputmode="decimal"
+                       step="0.25" min="0" placeholder="z. B. 20"
+                       @bind-value="tmpKg[e.Id]"
+                       @onfocus="() => SetActive(e)" />
+                <button class="btn tiny" @onclick="() => { SetActive(e); WeightInc(e, -2.5m);}">−2.5</button>
+                <button class="btn tiny" @onclick="() => { SetActive(e); WeightInc(e, +2.5m);}">+2.5</button>
+              </div>
+            </div>
+
+            <div class="vstack" style="min-width:140px">
+              <label class="label">RPE (6–10)</label>
+              <select class="input tall" @bind="tmpRpe[e.Id]" @onfocus="() => SetActive(e)">
+                @for(int i=6;i<=10;i++){<option value="@i">RPE @i</option>}
+              </select>
+            </div>
+
+            <button class="btn primary tall" @onclick="async () => { SetActive(e); await AddSet(e); }" title="Satz speichern">Satz ▶︎</button>
+          </div>
+
+          <div class="vstack" style="margin-top:6px">
+            <label class="label">Notiz (optional)</label>
+            <input class="input" placeholder="z. B. enger Griff / Tempo 3-0-1-0 / Technik-Cue"
+                   @bind="tmpNote[e.Id]" @onfocus="() => SetActive(e)" />
+          </div>
+
+          <!-- Warmup-Assistent (Buttons immer sichtbar, Optionen einklappbar) -->
+          <div class="panel vstack" style="margin-top:10px">
+            <div class="hstack align-center">
+              <div class="section" style="margin:0">Warmup-Assistent</div>
+              <div class="grow"></div>
+              <button class="btn tiny" @onclick="() => ToggleWarmup(e.Id)">
+                @(warmupCollapsed[e.Id] ? "▸ Optionen" : "▾ Optionen")
+              </button>
+            </div>
+
+            <div class="hstack" style="gap:8px; flex-wrap:wrap; margin-top:6px">
+              @for (int i=0; i<State.WarmupPresets.Count; i++)
+              {
+                var p = State.WarmupPresets[i];
+                <button class="btn tiny" @onclick="async () => { SetActive(e); await LogWarmup(e, p.Percent, p.Reps); }">@p.Label</button>
+              }
+              @if (!State.WarmupPresets.Any())
+              {
+                <span class="small">Noch keine Presets – klappe „Optionen“ auf, um welche anzulegen.</span>
+              }
+            </div>
+
+            @if (!warmupCollapsed[e.Id])
+            {
+              <div class="small" style="margin-top:6px">Rundung auf 2,5 kg. Eigene Schemata unten anlegen.</div>
+
+              <div class="hstack align-end" style="gap:8px; margin-top:6px">
+                <div class="vstack" style="min-width:160px">
+                  <label class="label">Label</label>
+                  <input class="input" placeholder="z. B. 60% × 5" @bind="presetLabel" />
+                </div>
+                <div class="vstack" style="min-width:120px">
+                  <label class="label">% (0–100)</label>
+                  <input class="input" type="number" min="1" max="100" @bind="presetPercent" />
+                </div>
+                <div class="vstack" style="min-width:120px">
+                  <label class="label">Wdh</label>
+                  <input class="input" type="number" min="1" @bind="presetReps" />
+                </div>
+                <button class="btn primary" @onclick="AddPreset">Preset speichern</button>
+              </div>
+
+              @if (State.WarmupPresets.Any())
+              {
+                <div class="list" style="margin-top:6px">
+                  @for (int i=0; i<State.WarmupPresets.Count; i++)
+                  {
+                    <div class="item compact">
+                      <div class="small">@State.WarmupPresets[i].Label (@(State.WarmupPresets[i].Percent*100M)% · @State.WarmupPresets[i].Reps Wdh)</div>
+                                            <button class="btn danger tiny" @onclick="() => RemovePreset(i)">🗑️</button>
+                    </div>
+                  }
+                </div>
+              }
+            }
+          </div>
+
+          <!-- Letzte Sätze dieser Session -->
+          @if (!collapsed[e.Id] && sessionSets[e.Id].Any())
+          {
+            <div class="collapsible">
+              <div class="list">
+                @foreach (var s in sessionSets[e.Id].OrderByDescending(x=>x.Ts).Take(5))
+                {
+                  <div class="item compact @(s.IsWarmup ? "warmup" : string.Empty)">
+                    <div>
+                      @if (s.IsWarmup) { <span class="badge warmup">Warmup</span> }
+                      @s.Reps×@s.Weight kg
+                      <span class="small">· RPE @s.Rpe · @s.Ts.ToShortTimeString()</span>
+                      @if (!string.IsNullOrWhiteSpace(s.Note)) { <div class="small"><em>@s.Note</em></div> }
+                      @if (s.IsPR && !s.IsWarmup) { <span class="badge pr">🏅 PR</span> }
+                    </div>
+                    <button class="btn danger icon" title="Löschen" @onclick="() => RemoveSet(e, s)">🗑️</button>
+                  </div>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      }
+    </div>
+  }
+</div>
+
+<!-- ===== Mobile Bottom Action Bar (nur <768px sichtbar) ===== -->
+@if (wo is not null && activeExerciseId != Guid.Empty)
+{
+  var active = GetActiveExercise();
+  <div class="mobile-bottom-bar">
+    <div class="title">Aktiv: @active?.Title</div>
+    <button class="btn success block" @onclick="SaveActiveSet">Satz ▶︎</button>
+    <button class="btn block" @onclick="ToggleTimer">@((timer?.IsRunning ?? false) ? "Pause" : "Timer Start")</button>
+  </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    Workout? wo;
+
+    RestTimer? timer;
+    Guid savedHighlightId = Guid.Empty;
+
+    // aktive Übung für Mobile-Bar
+    Guid activeExerciseId = Guid.Empty;
+    ExercisePlan? GetActiveExercise() => wo?.Exercises.FirstOrDefault(x => x.Id == activeExerciseId);
+    void SetActive(ExercisePlan e) => activeExerciseId = e.Id;
+    void FlashSaved(Guid id)
+    {
+        savedHighlightId = id;
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(800);
+            savedHighlightId = Guid.Empty;
+            await InvokeAsync(StateHasChanged);
+        });
+    }
+
+
+    // Sätze der aktuellen Session
+    Dictionary<Guid, List<SetEntry>> sessionSets = new();
+
+    // UI-State
+    Dictionary<Guid,int> tmpReps = new();
+    Dictionary<Guid,decimal> tmpKg = new();
+    Dictionary<Guid,int> tmpRpe = new();
+    Dictionary<Guid,string> tmpNote = new();
+    Dictionary<Guid,bool> collapsed = new();
+    Dictionary<Guid,bool> warmupCollapsed = new();
+
+    // Preset-Editor
+    string presetLabel = ""; int presetReps = 5; int presetPercent = 60;
+
+    int currentTotalSets => sessionSets.Values.Sum(list => list.Count(s => !s.IsWarmup));
+    decimal currentTotalVolume => sessionSets.Values.Sum(list => list.Where(s => !s.IsWarmup).Sum(s => s.Weight * s.Reps));
+
+    protected override void OnInitialized()
+        => State.OnChange += StateHasChanged;
+
+    public void Dispose()
+        => State.OnChange -= StateHasChanged;
+
+    protected override void OnParametersSet()
+    {
+        wo = State.Workouts.FirstOrDefault(w => w.Id == Id);
+        if (wo is null) return;
+
+        sessionSets = new();
+        tmpReps = new(); tmpKg = new(); tmpRpe = new(); tmpNote = new(); collapsed = new(); warmupCollapsed = new();
+
+        foreach (var e in wo.Exercises)
+        {
+            tmpReps[e.Id] = e.TargetReps;
+            var last = e.Log.LastOrDefault()?.Weight ?? e.StartingWeight;
+            tmpKg[e.Id] = last;
+            tmpRpe[e.Id] = 7;
+            tmpNote[e.Id] = string.Empty;
+            collapsed[e.Id] = false;
+            warmupCollapsed[e.Id] = true;   // Warmup-Optionen default zu
+            sessionSets[e.Id] = new();
+        }
+
+        // erste Übung als aktiv setzen (für Mobile-Bar)
+        activeExerciseId = wo.Exercises.FirstOrDefault()?.Id ?? Guid.Empty;
+    }
+
+    async Task SaveActiveSet()
+    {
+        var e = GetActiveExercise();
+        if (e is null) return;
+        await AddSet(e);
+    }
+
+    async Task AddSet(ExercisePlan e)
+    {
+        SetActive(e);
+        var reps = tmpReps[e.Id];
+        var kg = tmpKg[e.Id];
+        var rpe = tmpRpe[e.Id];
+        var note = tmpNote[e.Id];
+        if (reps <= 0) return;
+
+        var set = new SetEntry { Reps = reps, Weight = kg, Rpe = rpe, Note = string.IsNullOrWhiteSpace(note) ? null : note, Ts = DateTime.Now };
+
+        // PR-Check (Warmups ignorieren)
+        var prevBest = e.Log.Where(x => !x.IsWarmup && x.Reps == reps).Select(x => x.Weight).DefaultIfEmpty(0m).Max();
+        if (kg > prevBest) set.IsPR = true;
+
+        e.Log.Add(set);
+        sessionSets[e.Id].Add(set);
+
+        await State.SaveAsync();
+        FlashSaved(e.Id);
+        StateHasChanged();
+    }
+
+    void WeightInc(ExercisePlan e, decimal delta) => tmpKg[e.Id] = Math.Max(0, Math.Round(tmpKg[e.Id] + delta, 2));
+    void ToggleHistory(Guid id) => collapsed[id] = !collapsed[id];
+    void ToggleWarmup(Guid id) => warmupCollapsed[id] = !warmupCollapsed[id];
+
+    async Task RemoveSet(ExercisePlan e, SetEntry s)
+    {
+        if (sessionSets.TryGetValue(e.Id, out var list))
+        {
+            var idx = list.FindIndex(x => x.Ts == s.Ts);
+            if (idx >= 0) list.RemoveAt(idx);
+        }
+        var gidx = e.Log.FindIndex(x => x.Ts == s.Ts);
+        if (gidx >= 0) e.Log.RemoveAt(gidx);
+
+        await State.SaveAsync();
+        StateHasChanged();
+    }
+
+    async Task AddPreset()
+    {
+        if (presetPercent <= 0 || presetPercent > 100 || presetReps <= 0 || string.IsNullOrWhiteSpace(presetLabel)) return;
+        await State.AddWarmupPreset(new WarmupPreset { Label = presetLabel.Trim(), Percent = (decimal)presetPercent / 100m, Reps = presetReps });
+        presetLabel = ""; presetReps = 5; presetPercent = 60;
+    }
+    async Task RemovePreset(int index) => await State.RemoveWarmupPreset(index);
+
+    async Task LogWarmup(ExercisePlan e, decimal percent, int reps)
+    {
+        SetActive(e);
+        var work = tmpKg[e.Id];
+        var kg = RoundTo(work * percent, 2.5m);
+        var warm = new SetEntry { Reps = reps, Weight = kg, Rpe = 6, IsWarmup = true, Ts = DateTime.Now };
+        e.Log.Add(warm);
+        sessionSets[e.Id].Add(warm);
+        await State.SaveAsync();
+        FlashSaved(e.Id);
+        StateHasChanged();
+    }
+    decimal RoundTo(decimal value, decimal step) => Math.Round(value / step, MidpointRounding.AwayFromZero) * step;
+
+    async Task ToggleTimer()
+    {
+        if (timer is null) return;
+        if (timer.IsRunning) timer.PauseResume();
+        else await timer.Start();
+    }
+
+    async Task FinishTraining()
+    {
+        if (wo is null) return;
+        var ok = await JS.InvokeAsync<bool>("confirm", "Training wirklich abschließen?");
+        if (!ok) return;
+
+        var completed = new CompletedSession
+        {
+            WorkoutId = wo.Id,
+            WorkoutName = wo.Name,
+            CompletedAt = DateTime.Now,
+            Exercises = wo.Exercises.Select(x => new CompletedExercise
+            {
+                Title = x.Title,
+                Sets = sessionSets.TryGetValue(x.Id, out var list) ? new List<SetEntry>(list) : new List<SetEntry>()
+            }).ToList()
+        };
+
+        await State.AddCompletedSession(completed);
+        Nav.NavigateTo("/");
+    }
+}

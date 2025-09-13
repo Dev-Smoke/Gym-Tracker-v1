@@ -1,0 +1,85 @@
+﻿@implements IDisposable
+@inject IJSRuntime JS
+
+<div class="panel vstack compact-mobile">
+    @if (collapsed)
+    {
+        <div class="hstack align-center">
+            <button class="btn sm subtle" @onclick="ToggleCollapse" title="Aufklappen">▸</button>
+            <div class="timer" style="font-size:20px; font-weight:600">@TimeString</div>
+        </div>
+    }
+    else
+    {
+        <div class="hstack align-center">
+            <div class="section" style="margin:0">Rest-Timer</div>
+            <div class="grow"></div>
+            <button class="btn sm subtle" @onclick="ToggleCollapse" title="Einklappen">▾</button>
+        </div>
+
+        <div class="timer">@TimeString</div>
+
+        <div class="hstack" style="flex-wrap:wrap;gap:8px">
+            <button class="btn sm" @onclick="() => Preset(60)">60s</button>
+            <button class="btn sm" @onclick="() => Preset(90)">90s</button>
+            <button class="btn sm" @onclick="() => Preset(120)">120s</button>
+            <button class="btn sm" @onclick="() => Preset(150)">150s</button>
+            <input class="input sm" type="number" min="10" step="5" style="max-width:120px" @bind="RestSeconds" />
+            <button class="btn primary sm" @onclick="Start">Start</button>
+            <button class="btn sm" @onclick="PauseResume">@(_running ? "Pause" : "Weiter")</button>
+            <button class="btn subtle sm" @onclick="Reset">Reset</button>
+        </div>
+        <div class="small">Beep bei 0 (auf iPhone nach erstem Start-Klick). Vibration auf iOS meist nicht verfügbar.</div>
+    }
+</div>
+
+@code {
+    [Parameter] public int RestSeconds { get; set; } = 90;
+    [Parameter] public bool StartCollapsed { get; set; } = false;
+
+    private System.Timers.Timer? _timer;
+    private bool _running;
+    private int _remaining;
+    private bool collapsed;
+    private string TimeString => $"{_remaining / 60:00}:{_remaining % 60:00}";
+    public bool IsRunning => _running;
+
+    protected override void OnInitialized()
+    {
+        _remaining = RestSeconds;
+        collapsed = StartCollapsed;
+    }
+
+    void ToggleCollapse() => collapsed = !collapsed;
+
+    public async Task Start()
+    {
+        _remaining = Math.Max(1, RestSeconds);
+        _timer ??= new System.Timers.Timer(1000);
+        _timer.Elapsed -= OnTick;
+        _timer.Elapsed += OnTick;
+        _running = true;
+        await JS.InvokeVoidAsync("unlockAudio");
+        _timer.Start();
+    }
+
+    public void Preset(int sec) { RestSeconds = sec; _ = Start(); }
+    public void PauseResume() { _running = !_running; if (_running) _timer?.Start(); else _timer?.Stop(); }
+    public void Reset() { _running = false; _timer?.Stop(); _remaining = 0; StateHasChanged(); }
+
+    async void OnTick(object? _, System.Timers.ElapsedEventArgs __)
+    {
+        if (!_running) return;
+        if (_remaining <= 0)
+        {
+            _running = false; _timer?.Stop();
+            await JS.InvokeVoidAsync("playBeep");
+            await JS.InvokeVoidAsync("tryVibrate");
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+        _remaining--;
+        await InvokeAsync(StateHasChanged);
+    }
+    public void Dispose() => _timer?.Dispose();
+}

@@ -1,0 +1,176 @@
+﻿@page "/"
+@using Gym_Tracker.Components
+@using Gym_Tracker.Services
+@using Gym_Tracker.Models;
+@using Microsoft.AspNetCore.Components.Forms
+
+@inject AppState Store
+
+@implements IDisposable
+
+
+<NavBar Title="Gym Tracker" />
+<div class="container vstack">
+    @if (Store.Workouts is null || !Store.Workouts.Any())
+    {
+        <div class="panel vstack">
+            <div class="title">Willkommen 👋</div>
+            <div class="small">Erstelle dein erstes Workout. Die Daten bleiben lokal auf dem Gerät (LocalStorage) – ideal fürs iPhone als PWA.</div>
+        </div>
+    }
+
+
+    <div class="card-grid">
+        <StatCard Caption="Workouts" Value="@(Store.Workouts?.Count.ToString() ?? "0")" />
+        @{
+            var (sets, vol) = Store.Stats();
+            <StatCard Caption="Sätze gesamt" Value="@sets.ToString()" />
+            <StatCard Caption="Volumen" Value="@($"{vol:0} kg·wdh")" />
+        }
+    </div>
+
+    <div class="panel vstack">
+        <div class="section">Analyse</div>
+        <div class="hstack">
+            <NavLink class="btn" href="/progress">Fortschritt je Übung ansehen</NavLink>
+        </div>
+    </div>
+
+    <div class="panel vstack" style="margin-top:12px">
+        <div class="section">Daten</div>
+        <div class="hstack" style="gap:8px; flex-wrap:wrap">
+            <button class="btn" @onclick="ExportSessionsCsv">CSV – Sessions</button>
+            <button class="btn" @onclick="ExportAllCsv">CSV – Komplett</button>
+            <button class="btn" @onclick="BackupJson">Backup (JSON)</button>
+            <label class="btn">
+                Restore JSON
+                <InputFile OnChange="RestoreJson" accept=".json" />
+            </label>
+        </div>
+        <div class="small">CSV/JSON werden lokal heruntergeladen. Restore überschreibt lokale Daten.</div>
+    </div>
+
+
+    <div class="panel vstack">
+        <div class="section">Workouts</div>
+        <div class="hstack">
+            <input class="input" placeholder="Neues Workout benennen…" @bind-value="newName" />
+            <button class="btn primary" @onclick="Create">+ Hinzufügen</button>
+        </div>
+
+
+        <div class="list" style="margin-top:10px">
+            @if (Store.Workouts != null)
+            {
+                @foreach (var w in Store.Workouts)
+                {
+                    <div class="item">
+                        <div>
+                            <div><b>@w.Name</b> <span class="small">· @w.Exercises.Count Übungen</span></div>
+                            <div class="small">angelegt: @w.Created</div>
+                        </div>
+                        <div class="workout-actions">
+                            <NavLink class="btn orange icon" href="@($"/edit/{w.Id}")">✏️</NavLink>
+                            <NavLink class="btn success icon" href="@($"/train/{w.Id}")" >🏋️</NavLink>
+                            <button class="btn danger" @onclick="() => Remove(w.Id)">🗑️</button>
+                        </div>
+
+
+
+                    </div>
+                }
+            }
+        </div>
+    </div>
+    <div class="panel vstack" style="margin-top:12px">
+        <div class="section">Abgeschlossene Trainings</div>
+        @if (Store.Sessions is null || Store.Sessions.Count == 0)
+        {
+            <div class="small">Noch keine Trainings abgeschlossen.</div>
+        }
+        else
+        {
+            <div class="list">
+                @foreach (var s in Store.Sessions.OrderByDescending(x => x.CompletedAt))
+                {
+                    <div class="item session-row">
+                        <div class="grow">
+                            <div><b>@s.WorkoutName</b></div>
+                            <div class="small">@s.CompletedAt:dd.MM.yyyy HH:mm · @s.TotalSets Sätze · Volumen ~ @s.TotalVolume.ToString("0") kg·wdh</div>
+                        </div>
+                        <div class="row-actions">                           
+                            <NavLink class="btn" href="@($"/session/{s.Id}")">Details</NavLink>
+                            <button class="btn danger" @onclick="() => DeleteSession(s.Id)">🗑️</button>
+                        </div>
+                    </div>
+                }
+
+            </div>
+        }
+    </div>
+</div>
+
+
+@code {
+    string newName = "Push";
+
+    protected override void OnInitialized()
+        => Store.OnChange += StateHasChanged;
+
+    public void Dispose()
+        => Store.OnChange -= StateHasChanged;
+
+    async Task Create()
+    {
+        if (string.IsNullOrWhiteSpace(newName)) return;
+        Store.CreateWorkout(newName.Trim());
+        await Store.SaveAsync();
+        newName = "";
+    }
+
+    async Task Remove(Guid id)
+    {
+        Store.RemoveWorkout(id);
+        await Store.SaveAsync();
+    }
+    void ViewSession(CompletedSession s)
+    {
+        var lines = s.Exercises
+            .SelectMany(ex => ex.Sets.Select(set => $"{ex.Title}: {set.Reps}×{set.Weight} kg (RPE {set.Rpe})"))
+            .ToList();
+        var msg = $"{s.WorkoutName} – {s.CompletedAt}\n\n" +
+                  (lines.Count == 0 ? "Keine Sätze erfasst." : string.Join("\n", lines));
+        // Simple Anzeige; optional ersetzen durch Dialog/Modal
+        Console.WriteLine(msg);
+        //_ = Microsoft.JSInterop.JSRuntime.; // nur damit keine Warnung kommt, falls du später JS nutzt
+        _ = msg; // entfernen, wenn du eine echte Anzeige einbaust
+    }
+    async Task DeleteSession(Guid id)
+    {
+        if (!await JSConfirm("Training wirklich löschen?")) return;
+        await Store.RemoveSession(id);
+    }
+
+    async Task ExportSessionsCsv()
+       => await JS.InvokeVoidAsync("downloadText", $"sessions_{DateTime.Now:yyyyMMdd_HHmm}.csv", Store.ExportSessionsCsv());
+
+    async Task ExportAllCsv()
+        => await JS.InvokeVoidAsync("downloadText", $"all_{DateTime.Now:yyyyMMdd_HHmm}.csv", Store.ExportAllCsv());
+
+    async Task BackupJson()
+        => await JS.InvokeVoidAsync("downloadText", $"backup_{DateTime.Now:yyyyMMdd_HHmm}.json", Store.ExportBackupJson());
+
+    async Task RestoreJson(InputFileChangeEventArgs e)
+    {
+        using var stream = e.File.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024);
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms);
+        var json = System.Text.Encoding.UTF8.GetString(ms.ToArray());
+        await Store.ImportBackupJson(json);
+    }
+
+    [Inject] IJSRuntime JS { get; set; } = default!;
+        async Task<bool> JSConfirm(string message)
+        => await JS.InvokeAsync<bool>("confirm", message);
+}
+}

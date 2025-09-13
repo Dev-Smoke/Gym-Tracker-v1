@@ -1,0 +1,10 @@
+﻿<div class="panel vstack">
+    <div class="small">@Caption</div>
+    <div class="title">@Value</div>
+</div>
+
+
+@code {
+    [Parameter] public string Caption { get; set; } = string.Empty;
+    [Parameter] public string Value { get; set; } = string.Empty;
+}

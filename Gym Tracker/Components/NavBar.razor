@@ -1,0 +1,9 @@
+﻿@code { [Parameter] public string Title { get; set; } = "Gym Tracker"; }
+
+
+    <nav class="panel hstack" style="position:sticky;top:0;z-index:10;gap:12px;backdrop-filter:blur(8px)">
+        <strong>@Title</strong>
+        <span class="badge">PWA · offline</span>
+        <div class="grow"></div>
+        <NavLink class="btn subtle" href="/">Übersicht</NavLink>
+    </nav>

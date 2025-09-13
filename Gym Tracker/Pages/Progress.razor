@@ -1,0 +1,288 @@
+﻿@page "/progress"
+@using Gym_Tracker.Services
+@using Gym_Tracker.Models
+@using System.Globalization
+@using Gym_Tracker.Components
+@inject AppState State
+
+<NavBar Title="Fortschritt" />
+<div class="container vstack">
+    <div class="panel vstack">
+        <div class="section">Ansicht</div>
+        <div class="progress-controls">
+            <select class="input" @bind="Selected">
+                @foreach (var ex in Exercises)
+                {
+                    <option value="@ex">@ex</option>
+                }
+            </select>
+            <select class="input" @bind="Metric">
+                <option value="1RM">1RM (Epley)</option>
+                <option value="TopWeight">Top-Gewicht</option>
+                <option value="TopReps">Top-Wdh</option>
+                <option value="Volume">Volumen</option>
+                <option value="RepPR">Gewicht bei Ziel-Wdh</option>
+            </select>
+
+            @if (Metric == "RepPR")
+            {
+                <div class="hstack" style="gap:8px">
+                    <label class="label">Ziel-Wdh</label>
+                    <input class="input" type="number" min="1" max="30" @bind="TargetReps" />
+                </div>
+                <label class="label" style="display:flex; align-items:center; gap:6px">
+                    <input type="checkbox" @bind="EstimateIfMissing" />
+                    hochrechnen, wenn kein exakter Satz
+                </label>
+            }
+        </div>
+    </div>
+
+    @if (string.IsNullOrEmpty(Selected))
+    {
+        <div class="panel">Noch keine Übungen vorhanden.</div>
+    }
+    else if (!Dataset.Any())
+    {
+        <div class="panel">Keine Datensätze für „@Selected“ gefunden. (Hinweis: Nur <b>abgeschlossene Trainings</b> zählen.)</div>
+    }
+    else
+    {
+        <div class="panel vstack">
+            <div class="section">@MetricTitle</div>
+            <div class="progress-chart" style="width:100%; overflow-x:auto">
+                <svg width="100%" viewBox="0 0 800 260" preserveAspectRatio="none" style="background:#0b1228;border-radius:12px;border:1px solid #23304f">
+                    <line x1="40" y1="220" x2="780" y2="220" stroke="#334155" stroke-width="1" />
+                    <line x1="40" y1="20" x2="40" y2="220" stroke="#334155" stroke-width="1" />
+
+                    @for (int i = 0; i <= 4; i++)
+                    {
+                        var val = min + (max - min) * i / 4.0;
+                        var y = 220 - ((val - min) / (max - min) * 200.0);
+                        var yStr = y.ToString(CultureInfo.InvariantCulture);
+                        @SvgText(6, y, Math.Round(val).ToString())
+                        ;
+                        <line x1="40" y1="@yStr" x2="780" y2="@yStr" stroke="#1f2a44" stroke-width="1" />
+                    }
+
+                    <polyline fill="none" stroke="#60a5fa" stroke-width="2" points="@PolyPoints" />
+
+                    @for (int i = 0; i < Points.Count; i++)
+                    {
+                        var p = Points[i];
+                        var fill = (Metric == "RepPR" && i < EstFlags.Count && EstFlags[i]) ? "#fbbf24" : "#60a5fa";
+                        <circle cx="@p.X.ToString(CultureInfo.InvariantCulture)"
+                                cy="@p.Y.ToString(CultureInfo.InvariantCulture)"
+                                r="3.5" fill="@fill" />
+                    }
+                </svg>
+            </div>
+
+            @if (Metric == "RepPR")
+            {
+                <div class="small">Goldene Punkte = aus 1RM auf @TargetReps Wdh hochgerechnet, weil kein exakter Satz vorhanden war.</div>
+            }
+            else
+            {
+                <div class="small">Nur Arbeitssätze (Warmups ausgeschlossen). 1RM: Epley = Gewicht × (1 + Wdh/30).</div>
+            }
+        </div>
+
+        <div class="panel vstack">
+            <div class="section">Datenpunkte</div>
+            <div class="list">
+                @for (int i = 0; i < Dataset.Count; i++)
+                {
+                    var d = Dataset[i];
+                    <div class="item compact">
+                        <div><b>@d.Date</b> · @MetricPointLabel(d, i)</div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    // ===== Binding-Properties (rufen Build() beim Setzen) =====
+    private string selected = string.Empty;
+    private string Selected
+    {
+        get => selected;
+        set { if (selected != value) { selected = value; Build(); StateHasChanged(); } }
+    }
+
+    private string metric = "1RM";
+    private string Metric
+    {
+        get => metric;
+        set { if (metric != value) { metric = value; Build(); StateHasChanged(); } }
+    }
+
+    private int targetReps = 8;
+    private int TargetReps
+    {
+        get => targetReps;
+        set { var v = Math.Clamp(value, 1, 30); if (targetReps != v) { targetReps = v; Build(); StateHasChanged(); } }
+    }
+
+    private bool estimateIfMissing = true;
+    private bool EstimateIfMissing
+    {
+        get => estimateIfMissing;
+        set { if (estimateIfMissing != value) { estimateIfMissing = value; Build(); StateHasChanged(); } }
+    }
+
+    // ===== Daten =====
+    private List<string> Exercises = new();
+    private record Row(DateTime Date, decimal Weight, int Reps, decimal OneRM, decimal Volume);
+    private List<Row> Dataset = new();
+
+    // Serie & Flags (für RepPR)
+    private List<decimal> SeriesVals = new();
+    private List<bool> EstFlags = new();
+
+    // Punkte für SVG (Invariant formatiert in der View)
+    private List<(double X, double Y)> Points = new();
+    private string PolyPoints = "";
+    private double min = 0, max = 1;
+
+    protected override void OnInitialized()
+    {
+        // 1) Übungen mit echten Arbeitssatz-Daten aus Sessions
+        var withData = State.Sessions
+            .SelectMany(s => s.Exercises.Select(ex => new { ex.Title, Sets = ex.Sets.Where(x => !x.IsWarmup).ToList() }))
+            .Where(x => x.Sets.Any())
+            .Select(x => x.Title)
+            .Distinct()
+            .OrderBy(x => x)
+            .ToList();
+
+        if (withData.Any())
+        {
+            Exercises = withData;
+            Selected = Exercises.First();
+        }
+        else
+        {
+            // 2) Fallback: Workouts
+            Exercises = State.Workouts.SelectMany(w => w.Exercises).Select(e => e.Title).Distinct().OrderBy(x => x).ToList();
+            Selected = Exercises.FirstOrDefault() ?? string.Empty;
+        }
+    }
+
+    private string MetricTitle => Metric switch
+    {
+        "TopWeight" => "Top-Gewicht pro Datum",
+        "TopReps" => "Top-Wiederholungen pro Datum",
+        "Volume" => "Volumen pro Datum",
+        "RepPR" => $"Gewicht bei Ziel-Wdh (R{TargetReps})",
+        _ => "1RM (Epley) pro Datum"
+    };
+
+    void Build()
+    {
+        Dataset.Clear();
+        Points.Clear();
+        PolyPoints = "";
+        SeriesVals.Clear();
+        EstFlags.Clear();
+
+        if (string.IsNullOrEmpty(Selected)) return;
+
+        foreach (var s in State.Sessions.OrderBy(x => x.CompletedAt))
+        {
+            var all = s.Exercises.Where(x => x.Title == Selected)
+                                 .SelectMany(x => x.Sets)
+                                 .Where(x => !x.IsWarmup)
+                                 .ToList();
+            if (!all.Any()) continue;
+
+            var topW = all.OrderByDescending(x => x.Weight).First();
+            var topR = all.OrderByDescending(x => x.Reps).First();
+            var top1Rm = all.Select(x => x.Weight * (1 + (x.Reps / 30m))).DefaultIfEmpty(0m).Max();
+            var vol = all.Aggregate(0m, (a, x) => a + x.Weight * x.Reps);
+
+            Dataset.Add(new Row(s.CompletedAt.Date, topW.Weight, topR.Reps, top1Rm, vol));
+
+            if (Metric == "RepPR")
+            {
+                var exact = all.Where(x => x.Reps == TargetReps).Select(x => x.Weight).ToList();
+                if (exact.Any())
+                {
+                    SeriesVals.Add(exact.Max());
+                    EstFlags.Add(false);
+                }
+                else if (EstimateIfMissing)
+                {
+                    var est = SafeDiv(top1Rm, (1 + (TargetReps / 30m))); // W_target = 1RM / (1 + R/30)
+                    SeriesVals.Add(est);
+                    EstFlags.Add(true);
+                }
+                else
+                {
+                    // kein Punkt für dieses Datum
+                    // Hinweis: Dataset hat trotzdem den Row für die Tabelle
+                }
+            }
+        }
+
+        if (!Dataset.Any())
+            return;
+
+        IEnumerable<decimal> series = Metric switch
+        {
+            "TopWeight" => Dataset.Select(d => d.Weight),
+            "TopReps" => Dataset.Select(d => (decimal)d.Reps),
+            "Volume" => Dataset.Select(d => d.Volume),
+            "RepPR" => SeriesVals,
+            _ => Dataset.Select(d => d.OneRM)
+        };
+
+        if (!series.Any())
+            return;
+
+        min = Math.Max(0.0, (double)series.Min() * 0.9);
+        max = Math.Max(min + 1, (double)series.Max() * 1.1);
+
+        var left = 40.0; var right = 780.0; var top = 20.0; var bottom = 220.0;
+        var width = right - left; var height = bottom - top;
+
+        var vals = series.ToList();
+        for (int i = 0; i < vals.Count; i++)
+        {
+            var x = left + (width * i / Math.Max(1, vals.Count - 1));
+            var norm = Math.Clamp(((double)vals[i] - min) / (max - min), 0.0, 1.0);
+            var y = bottom - (height * norm);
+            Points.Add((x, y));
+        }
+
+        PolyPoints = string.Join(" ",
+            Points.Select(p =>
+                $"{p.X.ToString(CultureInfo.InvariantCulture)},{p.Y.ToString(CultureInfo.InvariantCulture)}"));
+    }
+
+    static decimal SafeDiv(decimal a, decimal b) => b == 0 ? 0 : a / b;
+
+    // SVG <text> mit InvariantCulture
+    MarkupString SvgText(double x, double y, string label)
+        => (MarkupString)$"<text x='{x.ToString(CultureInfo.InvariantCulture)}' y='{y.ToString(CultureInfo.InvariantCulture)}' fill='#94a3b8' font-size='10'>{label}</text>";
+
+    string MetricPointLabel(Row d, int idx) => Metric switch
+    {
+        "TopWeight" => $"Top-Gewicht: {d.Weight} kg",
+        "TopReps" => $"Top-Wdh: {d.Reps}",
+        "Volume" => $"Volumen: {Math.Round(d.Volume, 0)} kg·wdh",
+        "RepPR" => SeriesLabel(idx),
+        _ => $"1RM ~ {Math.Round(d.OneRM, 1)} kg"
+    };
+
+    string SeriesLabel(int idx)
+    {
+        if (idx < 0) return "";
+        // Serie für RepPR entspricht der Reihenfolge der Punkte
+        var val = (idx < SeriesVals.Count) ? SeriesVals[idx] : 0m;
+        var est = (idx < EstFlags.Count) && EstFlags[idx];
+        return $"{(est ? "≈ " : "")}Gewicht bei R{TargetReps}: {Math.Round(val, 1)} kg" + (est ? " (hochgerechnet)" : "");
+    }
+}
