@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  REPO_NAME: <REPO_NAME>
+  REPO_NAME: <REPO_NAME>   # <-- hier deinen Repo-Namen einsetzen, z.B. gym-tracker
 
 jobs:
   build:
@@ -24,33 +24,34 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup .NET
+      - name: Setup .NET 9
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '9.0.x'   # <-- wichtig: 9.0.x
 
       - name: Restore
         run: dotnet restore
 
+      # Wir veröffentlichen in einen versionsunabhängigen Ordner "dist"
       - name: Publish (Release)
-        run: dotnet publish -c Release
+        run: dotnet publish -c Release -o dist
 
-      # Optional: Falls du base href NICHT fix in index.html gesetzt hast,
-      # kannst du ihn hier on-the-fly ersetzen:
-      # - name: Patch base href to /<REPO_NAME>/
-      #   run: |
-      #     sed -i "s|<base href=\"/\">|<base href=\"/${REPO_NAME}/\">|g" bin/Release/net8.0/publish/wwwroot/index.html
-      #     sed -i "s|\"start_url\": \"/\"|\"start_url\": \"/${REPO_NAME}/\"|g" bin/Release/net8.0/publish/wwwroot/manifest.webmanifest
-      #     sed -i "s|\"scope\": \"/\"|\"scope\": \"/${REPO_NAME}/\"|g" bin/Release/net8.0/publish/wwwroot/manifest.webmanifest
-
-      # SPA-Fallback: 404.html = index.html (damit Deep-Links funktionieren)
+      # SPA-Fallback: 404.html = index.html (Deep-Links funktionieren)
       - name: Add SPA 404 fallback
-        run: cp bin/Release/net8.0/publish/wwwroot/index.html bin/Release/net8.0/publish/wwwroot/404.html
+        run: cp dist/wwwroot/index.html dist/wwwroot/404.html
+
+      # Falls du base href / manifest nicht manuell auf /<REPO_NAME>/ gestellt hast,
+      # kannst du sie hier patchen (ansonsten diesen Block auskommentiert lassen):
+      # - name: Patch base href and manifest scope/start_url
+      #   run: |
+      #     sed -i "s|<base href=\"/\">|<base href=\"/${REPO_NAME}/\">|g" dist/wwwroot/index.html
+      #     sed -i "s|\"start_url\": \"/\"|\"start_url\": \"/${REPO_NAME}/\"|g" dist/wwwroot/manifest.webmanifest
+      #     sed -i "s|\"scope\": \"/\"|\"scope\": \"/${REPO_NAME}/\"|g" dist/wwwroot/manifest.webmanifest
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: bin/Release/net8.0/publish/wwwroot
+          path: dist/wwwroot
 
   deploy:
     environment:
