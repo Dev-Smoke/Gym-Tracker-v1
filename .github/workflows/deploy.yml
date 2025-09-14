@@ -1,0 +1,65 @@
+name: Deploy Blazor WASM PWA to GitHub Pages
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+env:
+  REPO_NAME: <REPO_NAME>   # <-- hier deinen Repo-Namen einsetzen, z.B. gym-tracker
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'   # <-- wichtig: 9.0.x
+
+      - name: Restore
+        run: dotnet restore
+
+      # Wir veröffentlichen in einen versionsunabhängigen Ordner "dist"
+      - name: Publish (Release)
+        run: dotnet publish -c Release -o dist
+
+      # SPA-Fallback: 404.html = index.html (Deep-Links funktionieren)
+      - name: Add SPA 404 fallback
+        run: cp dist/wwwroot/index.html dist/wwwroot/404.html
+
+      # Falls du base href / manifest nicht manuell auf /<REPO_NAME>/ gestellt hast,
+      # kannst du sie hier patchen (ansonsten diesen Block auskommentiert lassen):
+      # - name: Patch base href and manifest scope/start_url
+      #   run: |
+      #     sed -i "s|<base href=\"/\">|<base href=\"/${REPO_NAME}/\">|g" dist/wwwroot/index.html
+      #     sed -i "s|\"start_url\": \"/\"|\"start_url\": \"/${REPO_NAME}/\"|g" dist/wwwroot/manifest.webmanifest
+      #     sed -i "s|\"scope\": \"/\"|\"scope\": \"/${REPO_NAME}/\"|g" dist/wwwroot/manifest.webmanifest
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/wwwroot
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
