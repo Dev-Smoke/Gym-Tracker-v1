@@ -62,3 +62,57 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      # DEBUG: Zeig mir, was der Runner wirklich sieht
+      - name: Debug repo files
+        run: |
+          echo "List all csproj:"
+          git ls-files '*.csproj'
+          echo
+          echo "Search for net9.0 in csproj/props/targets/global.json:"
+          grep -Rni --include="*.csproj" --include="*.props" --include="*.targets" --include="global.json" net9.0 . || true
+          echo
+          echo "Show main csproj (first 120 lines):"
+          sed -n '1,120p' "Gym Tracker/Gym Tracker.csproj" || true
+
+      # NOTBREMSE: Alles auf net8.0 setzen (blind), SDK-/9.x-Suffix entfernen
+      - name: Force net8 across all csproj
+        run: |
+          set -e
+          for f in $(git ls-files '*.csproj'); do
+            echo "Patching $f"
+            # SDK-Version /9.x entfernen (falls jemand eine Version ans SDK gehängt hat)
+            sed -i 's|Sdk="Microsoft.NET.Sdk\.\([^"]*\)/[0-9.]*"|Sdk="Microsoft.NET.Sdk.\1"|g' "$f"
+            # Multi-Target in ein Target net8.0 umbiegen
+            sed -i 's|<TargetFrameworks>[^<]*</TargetFrameworks>|<TargetFrameworks>net8.0</TargetFrameworks>|g' "$f"
+            # Single-Target auf net8.0 setzen
+            sed -i 's|<TargetFramework>[^<]*</TargetFramework>|<TargetFramework>net8.0</TargetFramework>|g' "$f"
+          done
+
+          echo "After patch, show main csproj again:"
+          sed -n '1,120p' "Gym Tracker/Gym Tracker.csproj" || true
+
+      - name: Restore
+        run: dotnet restore "Gym Tracker/Gym Tracker.csproj"
+
+      - name: Publish (Release)
+        run: dotnet publish "Gym Tracker/Gym Tracker.csproj" -c Release
+
+      - name: Add SPA 404 fallback
+        run: cp "Gym Tracker/bin/Release/net8.0/publish/wwwroot/index.html" "Gym Tracker/bin/Release/net8.0/publish/wwwroot/404.html"
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "Gym Tracker/bin/Release/net8.0/publish/wwwroot"
