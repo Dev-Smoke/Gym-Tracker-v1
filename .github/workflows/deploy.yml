@@ -14,9 +14,6 @@ concurrency:
   group: "pages"
   cancel-in-progress: false
 
-env:
-  REPO_NAME: <REPO_NAME>   # <-- hier deinen Repo-Namen einsetzen, z.B. gym-tracker
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -27,31 +24,33 @@ jobs:
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'   # <-- wichtig: 9.0.x
+          dotnet-version: '8.0.x'
+
+      # Notbremse: alle 9.0 Reste in csproj entfernen (nur falls noch irgendwo vorhanden)
+      - name: Force net8 in all csproj (safety)
+        run: |
+          set -e
+          # net9.0 -> net8.0
+          grep -Rli "<TargetFramework>net9.0</TargetFramework>" --include="*.csproj" . | xargs -r sed -i 's|<TargetFramework>net9.0</TargetFramework>|<TargetFramework>net8.0</TargetFramework>|g'
+          # TargetFrameworks mit net9.0 bereinigen
+          grep -Rli "<TargetFrameworks>.*net9.0" --include="*.csproj" . | xargs -r sed -i 's|;?net9\.0||g'
+          # Sdk mit /9.x entfernen
+          grep -Rli 'Sdk="Microsoft.NET.Sdk\.[^"]*/9\.' --include="*.csproj" . | xargs -r sed -i 's|Sdk="Microsoft.NET.Sdk.\([^"]*\)/9\.[0-9.]*"|Sdk="Microsoft.NET.Sdk.\1"|g'
 
       - name: Restore
-        run: dotnet restore
+        run: dotnet restore "Gym Tracker/Gym Tracker.csproj"
 
-      # Wir veröffentlichen in einen versionsunabhängigen Ordner "dist"
       - name: Publish (Release)
-        run: dotnet publish -c Release -o dist
+        run: dotnet publish "Gym Tracker/Gym Tracker.csproj" -c Release
 
-      # SPA-Fallback: 404.html = index.html (Deep-Links funktionieren)
       - name: Add SPA 404 fallback
-        run: cp dist/wwwroot/index.html dist/wwwroot/404.html
-
-      # Falls du base href / manifest nicht manuell auf /<REPO_NAME>/ gestellt hast,
-      # kannst du sie hier patchen (ansonsten diesen Block auskommentiert lassen):
-      # - name: Patch base href and manifest scope/start_url
-      #   run: |
-      #     sed -i "s|<base href=\"/\">|<base href=\"/${REPO_NAME}/\">|g" dist/wwwroot/index.html
-      #     sed -i "s|\"start_url\": \"/\"|\"start_url\": \"/${REPO_NAME}/\"|g" dist/wwwroot/manifest.webmanifest
-      #     sed -i "s|\"scope\": \"/\"|\"scope\": \"/${REPO_NAME}/\"|g" dist/wwwroot/manifest.webmanifest
+        run: |
+          cp "Gym Tracker/bin/Release/net8.0/publish/wwwroot/index.html" "Gym Tracker/bin/Release/net8.0/publish/wwwroot/404.html"
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist/wwwroot
+          path: "Gym Tracker/bin/Release/net8.0/publish/wwwroot"
 
   deploy:
     environment:
