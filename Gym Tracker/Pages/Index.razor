@@ -70,8 +70,8 @@
                             <div class="small">angelegt: @w.Created</div>
                         </div>
                         <div class="workout-actions">
-                            <NavLink class="btn orange icon" href="@($"/edit/{w.Id}")">✏️</NavLink>
-                            <NavLink class="btn success icon" href="@($"/train/{w.Id}")" >🏋️</NavLink>
+                            <NavLink class="btn orange icon" href="@($"edit/{w.Id}")">✏️</NavLink>
+                            <NavLink class="btn success icon" href="@($"train/{w.Id}")" >🏋️</NavLink>
                             <button class="btn danger" @onclick="() => Remove(w.Id)">🗑️</button>
                         </div>
 
@@ -99,7 +99,7 @@
                             <div class="small">@s.CompletedAt · @s.TotalSets Sätze · Volumen ~ @s.TotalVolume.ToString("0") kg·wdh</div>
                         </div>
                         <div class="row-actions">                           
-                            <NavLink class="btn" href="@($"/session/{s.Id}")">Details</NavLink>
+                            <NavLink class="btn" href="@($"session/{s.Id}")">Details</NavLink>
                             <button class="btn danger" @onclick="() => DeleteSession(s.Id)">🗑️</button>
                         </div>
                     </div>

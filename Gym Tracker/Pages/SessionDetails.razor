@@ -75,8 +75,8 @@
     {
         if (!await JS.InvokeAsync<bool>("confirm", "Training wirklich löschen?")) return;
         await State.RemoveSession(Id);
-        Nav.NavigateTo("/");
+        Nav.NavigateTo("./");
     }
 
-    void Back() => Nav.NavigateTo("/");
+    void Back() => Nav.NavigateTo("./");
 }

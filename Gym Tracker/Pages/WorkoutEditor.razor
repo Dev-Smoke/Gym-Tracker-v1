@@ -85,7 +85,7 @@
       => workout = State.Workouts.FirstOrDefault(w => w.Id == Id);
 
   async Task Save() => await State.SaveAsync();
-  void Back() => Nav.NavigateTo("/");
+  void Back() => Nav.NavigateTo("./");
 
   async Task AddExercise()
   {
