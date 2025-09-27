@@ -5,7 +5,7 @@
 @inject AppState State
 @inject NavigationManager Nav
 @implements IDisposable
-
+@* Fehler: wenn ich eine übung nacheinander bearbeite werden die gelöscht *@
 <NavBar Title="Workout bearbeiten" />
 <div class="container vstack">
   @if (workout is null) { <div class="panel">Nicht gefunden.</div> } else {
@@ -45,25 +45,63 @@
       </div>
 
       <div class="list" style="margin-top:10px">
-        @for (int i = 0; i < workout.Exercises.Count; i++)
-        {
-          var idx = i; // WICHTIG: lokale Kopie für die Lambdas
-          var e = workout.Exercises[idx];
+                @for (int i = 0; i < workout.Exercises.Count; i++)
+                {
+                    var idx = i;
+                    var e = workout.Exercises[idx];
 
-        <div class="item editor-row">
-            <div class="grow">
-                <div><b>@e.Title</b></div>
-                <div class="small">@e.TargetSets×@e.TargetReps · Start: @e.StartingWeight kg</div>
-            </div>
-            <div class="row-actions">
-                <button class="btn" disabled="@(idx == 0)" @onclick="() => MoveExercise(idx, -1)">▲</button>
-                <button class="btn" disabled="@(idx == workout.Exercises.Count - 1)" @onclick="() => MoveExercise(idx, +1)">▼</button>
-                <button class="btn orange icon" @onclick="() => EditExercise(e)">✏️</button>
-                <button class="btn danger" @onclick="() => RemoveExercise(e)">🗑️</button>
-            </div>
-        </div>
+                    if (e.Id == editingId)
+                    {
+                        <!-- EDITOR-VIEW -->
+                        <div class="item editor-row" @key="e.Id">
+                            <div class="grow">
+                                <div class="hstack" style="gap:8px; align-items:flex-end; flex-wrap:wrap">
+                                    <div class="vstack" style="min-width:220px">
+                                        <label class="label">Übungsname</label>
+                                        <input class="input" @bind="editDraft.Title" />
+                                    </div>
+                                    <div class="vstack" style="min-width:120px">
+                                        <label class="label">Start kg</label>
+                                        <div class="hstack" style="gap:6px">
+                                            <input class="input" type="number" step="0.25" min="0" @bind="editDraft.StartingWeight" />
+                                            <button class="btn tiny" @onclick="() => editDraft.StartingWeight = Math.Max(0, editDraft.StartingWeight - 2.5m)">−</button>
+                                            <button class="btn tiny" @onclick="() => editDraft.StartingWeight += 2.5m">+</button>
+                                        </div>
+                                    </div>
+                                    <div class="vstack" style="min-width:120px">
+                                        <label class="label">Ziel-Sätze</label>
+                                        <input class="input" type="number" min="1" @bind="editDraft.TargetSets" />
+                                    </div>
+                                    <div class="vstack" style="min-width:120px">
+                                        <label class="label">Ziel-Wdh</label>
+                                        <input class="input" type="number" min="1" @bind="editDraft.TargetReps" />
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row-actions">
+                                <button class="btn success" @onclick="SaveEdit">Speichern</button>
+                                <button class="btn subtle" @onclick="CancelEdit">Abbrechen</button>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <!-- ANZEIGE-VIEW -->
+                        <div class="item editor-row" @key="e.Id">
+                            <div class="grow">
+                                <div><b>@e.Title</b></div>
+                                <div class="small">@e.TargetSets×@e.TargetReps · Start: @e.StartingWeight kg</div>
+                            </div>
+                            <div class="row-actions">
+                                <button class="btn" disabled="@(idx == 0)" @onclick="() => MoveExercise(idx, -1)">▲</button>
+                                <button class="btn" disabled="@(idx == workout.Exercises.Count - 1)" @onclick="() => MoveExercise(idx, +1)">▼</button>
+                                <button class="btn orange icon" @onclick="() => StartEdit(e)">✏️ Ändern</button>
+                                <button class="btn danger" @onclick="() => RemoveExercise(e)">🗑️ Entfernen</button>
+                            </div>
+                        </div>
+                    }
+                }
 
-        }
       </div>
     </div>
   }
@@ -130,4 +168,48 @@
       await State.SaveAsync();
       StateHasChanged();
   }
+    // Welches Item ist gerade im Edit-Modus?
+    Guid? editingId = null;
+
+    // Entwurf, damit Abbrechen ohne Seiteneffekte geht
+    ExercisePlan editDraft = new ExercisePlan();
+
+    ExercisePlan Clone(ExercisePlan e) => new ExercisePlan
+    {
+        Id = e.Id,
+        Title = e.Title,
+        TargetSets = e.TargetSets,
+        TargetReps = e.TargetReps,
+        StartingWeight = e.StartingWeight,
+        // Log usw. lassen wir unberührt
+    };
+
+    void StartEdit(ExercisePlan e)
+    {
+        editingId = e.Id;
+        editDraft = Clone(e);
+    }
+
+    void CancelEdit()
+    {
+        editingId = null;
+    }
+
+    async Task SaveEdit()
+    {
+        if (editingId is null) return;
+        var i = workout.Exercises.FindIndex(x => x.Id == editingId);
+        if (i >= 0)
+        {
+            var t = workout.Exercises[i];
+            t.Title = editDraft.Title;
+            t.TargetSets = editDraft.TargetSets;
+            t.TargetReps = editDraft.TargetReps;
+            t.StartingWeight = editDraft.StartingWeight;
+            await State.SaveAsync(); // persistieren
+        }
+        editingId = null;
+        StateHasChanged();
+    }
+
 }
