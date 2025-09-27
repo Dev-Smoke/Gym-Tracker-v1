@@ -95,8 +95,8 @@
                             <div class="row-actions">
                                 <button class="btn" disabled="@(idx == 0)" @onclick="() => MoveExercise(idx, -1)">▲</button>
                                 <button class="btn" disabled="@(idx == workout.Exercises.Count - 1)" @onclick="() => MoveExercise(idx, +1)">▼</button>
-                                <button class="btn orange icon" @onclick="() => StartEdit(e)">✏️ Ändern</button>
-                                <button class="btn danger" @onclick="() => RemoveExercise(e)">🗑️ Entfernen</button>
+                                <button class="btn orange icon" @onclick="() => StartEdit(e)">✏️</button>
+                                <button class="btn danger" @onclick="() => RemoveExercise(e)">🗑️</button>
                             </div>
                         </div>
                     }
