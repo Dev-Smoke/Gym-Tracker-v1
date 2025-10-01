@@ -32,7 +32,7 @@
     <div class="panel vstack">
         <div class="section">Analyse</div>
         <div class="hstack">
-            <NavLink class="btn" href="/progress">Fortschritt je Übung ansehen</NavLink>
+            <NavLink class="btn" href="progress">Fortschritt je Übung ansehen</NavLink>
         </div>
     </div>
 
@@ -42,9 +42,13 @@
             <button class="btn" @onclick="ExportSessionsCsv">CSV – Sessions</button>
             <button class="btn" @onclick="ExportAllCsv">CSV – Komplett</button>
             <button class="btn" @onclick="BackupJson">Backup (JSON)</button>
-            <label class="btn">
+            @* <label class="btn">
                 Restore JSON
                 <InputFile OnChange="RestoreJson" accept=".json" />
+            </label> *@
+            <label class="btn " title="Restore JSON">
+                Upload
+                <InputFile OnChange="RestoreJson" accept=".json" style="display:none" />
             </label>
         </div>
         <div class="small">CSV/JSON werden lokal heruntergeladen. Restore überschreibt lokale Daten.</div>
